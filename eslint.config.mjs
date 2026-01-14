@@ -3,11 +3,21 @@ import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
 const eslintConfig = defineConfig([
+  // Extending Next.js ESLint config for core web vitals and TypeScript
   ...nextVitals,
   ...nextTs,
-  // Override default ignores of eslint-config-next.
+
+  // Specify additional rules
+  {
+    rules: {
+      // Allow the use of 'any' type
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  
+  // Override default ignores of eslint-config-next
   globalIgnores([
-    // Default ignores of eslint-config-next:
+    // Default ignores of eslint-config-next
     ".next/**",
     "out/**",
     "build/**",
