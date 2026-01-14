@@ -1,239 +1,165 @@
-Multi-Tenant Credit Purchase Backend
+# Multi-Tenant Credit Purchase Backend (josk)
 
-Next.js (Server-Side) + PostgreSQL
+An elegant, server-focused backend that ensures data integrity and safe concurrent behavior for multi-tenant credit purchases.
 
-What This Project Is
+Overview
 
-I am building a backend-only system where customers purchase products on credit.
-Each purchase affects multiple pieces of data at the same time, and the system must remain correct even when multiple requests happen concurrently.
+This repository implements a backend-only system built with Next.js (server-side) and PostgreSQL. It is designed for multiple businesses (tenants) to share the same application and database while keeping their data strictly isolated. The main focus is correctness, consistency, and safety under concurrent operations — especially when handling money, inventory, and credit.
 
-This is a multi-tenant system. Multiple businesses use the same backend and database, but their data must remain completely isolated from one another.
+Key goals
 
-There is no frontend. The focus is entirely on correctness, data integrity, and safe concurrent behavior.
+- Strong correctness guarantees for financial and inventory operations.
+- Multi-tenant data isolation with tenant-aware schema and queries.
+- ACID transactions and row-level locking to avoid race conditions and overselling.
+- Auditability through a credit ledger instead of mutable balances.
 
-The Core Problem I Am Solving
+Highlights
 
-This system has several non-trivial constraints:
+- No frontend — Next.js is used as an API/server layer only.
+- PostgreSQL is used for its transactional guarantees, constraints, and row-level locks.
+- Designed to handle concurrent purchases safely.
 
-Money and credit are involved, so inconsistencies are unacceptable
+Architecture & Core Concepts
 
-Inventory is involved, so race conditions are dangerous
-
-Multiple tenants share the same database
-
-Multiple purchases can happen at the same time
-
-Because of this, my main responsibility is to preserve correctness first and worry about performance second.
-
-PostgreSQL is a good fit here because it provides strong consistency, ACID transactions, row-level locking, and rich constraint support.
-
-Concepts This System Is Built On
 Transactions
 
-A single purchase is one logical operation, but it touches multiple tables:
-
-products
-
-customers
-
-orders
-
-order_items
-
-credit ledger
-
-All of these changes must either succeed together or fail together.
-To guarantee this, every purchase is executed inside a single database transaction.
-
-If any step fails, the transaction is rolled back and no partial data is written.
+Each purchase is executed as a single database transaction that touches multiple tables (products, customers, orders, order_items, credit_ledger). Every step must succeed for the entire transaction to commit. If any validation fails, the transaction rolls back and no partial data is written.
 
 Invariants
 
-I define rules that must never be broken:
+The system enforces these invariants primarily at the database level:
 
-Product stock must never go below zero
+- Product stock must never go below zero.
+- Customer credit usage must never exceed their credit limit.
+- Tenants cannot read or modify another tenant's data.
+- Orders are immutable historical records created only after all validations succeed.
 
-Customer credit usage must never exceed the credit limit
+Multi-tenancy
 
-One business must never read or modify another business’s data
-
-Orders must represent completed facts, not intentions
-
-These rules are enforced primarily at the database level using constraints and transactional logic, not just application code.
-
-Multi-Tenancy
-
-This system uses one shared database for all businesses.
-
-To keep data isolated:
-
-Every table includes a business_id
-
-Every query explicitly filters by business_id
-
-Composite constraints include business_id where appropriate
-
-This ensures that every row belongs to exactly one business and that cross-tenant access is not possible.
-
-When using Supabase, this model is compatible with Row Level Security as an additional safety layer.
+- All tables include a business_id column.
+- Every query and constraint is tenant-aware (uses business_id).
+- This model is compatible with Row Level Security (RLS) in PostgreSQL/Supabase if you choose to add it.
 
 Concurrency
 
-The hardest problems in this system come from concurrent purchases.
+Concurrent purchases are handled by acquiring row-level locks on customer and product rows before validation and updates. This prevents overselling and over-crediting without requiring application-level locks.
+
+Domain Model (Conceptual)
+
+- Businesses: tenants in the system. Other tables reference business_id.
+- Customers: belong to a business; each has a credit limit and credit activity tracked in the ledger.
+- Products: belong to a business; each product has stock and a price. Stock updates are transactional and validated.
+- Orders: immutable records representing completed purchases.
+- Order Items: store quantity and the purchase-time price so historical orders remain accurate.
+- Credit Ledger: append-only ledger entries track credit usage (positive) and payments (negative). The current balance is computed by summing ledger entries.
+
+Purchase Flow (high level)
+
+1. Start a database transaction.
+2. Lock the customer row to prevent concurrent credit changes.
+3. Lock the product rows to prevent concurrent stock changes.
+4. Validate stock availability and credit limit.
+5. Create the order record.
+6. Insert order_items.
+7. Update product stock.
+8. Insert credit ledger entries.
+9. Commit the transaction.
 
-Two purchases happening at the same time can cause:
+If any step fails, rollback to keep data consistent.
 
-Overselling stock
+Folder structure
 
-Exceeding customer credit limits
+The following is the high-level project layout. Files and directories may change; this represents the current organization in the repository root.
 
-Inconsistent balances
+.
+├─ .gitignore
+├─ README.md
+├─ bun.lock
+├─ docker-compose.yml
+├─ eslint.config.mjs
+├─ next.config.ts
+├─ package.json
+├─ postcss.config.mjs
+├─ tsconfig.json
+└─ src/
+   ├─ app/        # Next.js server routes and handlers (server-only)
+   ├─ db/         # Database connection, queries and transaction helpers
+   ├─ lib/        # Shared utilities and helpers
+   └─ types/      # TypeScript types and domain definitions
 
-I solve this using PostgreSQL row-level locks.
+Tech stack
 
-Instead of checking values and then updating them, I lock the relevant rows first and then validate them. This guarantees that once validation passes, the data cannot change underneath the transaction.
+- Language: TypeScript
+- Server: Next.js (used as a server/API layer)
+- Database: PostgreSQL (ACID transactions, row-level locking)
+- Containerization: Docker / Docker Compose
+- Tooling: Bun (lock file detected), ESLint, PostCSS
 
-Schema Design (Conceptual)
-Businesses
+Running with Docker Compose
 
-This table represents tenants.
-Every other table references a business.
-It is the root of data isolation.
+This repository includes a docker-compose.yml to run a local PostgreSQL instance. The compose file exposes PostgreSQL at host port 5433 and defines the default database user, password, and database name.
 
-Customers
+Defaults (from docker-compose.yml):
+- POSTGRES_USER: postgres
+- POSTGRES_PASSWORD: postgres
+- POSTGRES_DB: next_backend
+- Host port: 5433 → Container port: 5432
 
-Customers belong to exactly one business.
+Start PostgreSQL with:
 
-Each customer has:
+```bash
+# from repository root
+docker compose up -d
+```
 
-a credit limit
+This command will:
+- Pull the postgres:16 image (if not available locally).
+- Create and start the container named next_pg.
+- Create a persistent Docker volume `pgdata` to retain database files.
 
-credit usage tracked through a ledger
+Useful Docker commands
 
-A customer from one business can never affect another business.
+- Follow logs: docker compose logs -f postgres
+- Stop and remove containers: docker compose down
+- Remove volumes (data): docker compose down -v
+- Inspect container: docker compose ps
 
-Products
+Database access
 
-Products belong to one business.
+Once the container is running you can connect using psql, pgAdmin, or any PostgreSQL client at:
+- Host: localhost
+- Port: 5433
+- Database: next_backend
+- User: postgres
+- Password: postgres
 
-Each product has:
+Development (local)
 
-stock
+1. Clone the repository:
+   git clone https://github.com/xeureka/josk.git
+2. Install dependencies using your package manager of choice. This project contains a bun.lock file which indicates Bun may be used, but npm/yarn/pnpm are also likely to work.
+   - bun install
+   - or npm install
+   - or pnpm install
+3. Ensure PostgreSQL is running (via docker compose up -d or another local DB).
+4. Start the Next.js server (server-only usage):
+   - Using npm: npm run dev
+   - Using bun: bun dev
 
-price
+Note: Specific scripts and migration steps (if any) are in package.json or other scripts. If you need help running migrations or seeds, check package.json or open an issue.
 
-Stock must never go negative. This is enforced through transactional updates and validation under row-level locks.
+Testing
 
-Orders
+If this repo contains tests, run them via the provided test script in package.json (e.g., npm test). If there are no tests yet, consider adding unit and integration tests focused on transactional behavior and ledger accuracy.
 
-Orders represent completed purchases.
+Contributing
 
-They are immutable historical records created only after all validation succeeds.
+Contributions are welcome. Please open issues for bugs, feature requests, or proposals. For code changes, open a pull request with a clear description and test coverage for transactional or concurrency-sensitive changes.
 
-Orders reflect reality, not intent.
+License
 
-Order Items
+If you have a LICENSE file in the repository, that determines the license. If not, add one (MIT is common for backend projects).
 
-Order items represent the individual products in an order.
+Contact
 
-They store:
-
-quantity
-
-price at the time of purchase
-
-The purchase-time price is stored explicitly so future price changes do not affect historical orders.
-
-Credit Ledger
-
-Instead of storing a mutable balance, I use a ledger.
-
-Each credit-related change is recorded as a row:
-
-Positive amounts represent credit usage
-
-Negative amounts represent payments
-
-The current balance is computed as the sum of ledger entries.
-
-This approach provides auditability, correctness, and safety under concurrency.
-
-Purchase Flow
-
-The purchase endpoint follows a strict sequence:
-
-Start a database transaction
-
-Lock the customer row to prevent concurrent credit usage
-
-Lock the product rows to prevent concurrent stock changes
-
-Validate stock availability and credit limit
-
-Create the order
-
-Insert order items
-
-Update product stock
-
-Record credit usage in the ledger
-
-Commit the transaction
-
-If any step fails, the transaction is rolled back and no data is written.
-
-Why This Works Under Load
-
-PostgreSQL guarantees that only one transaction can hold a lock on a row at a time.
-
-Other transactions wait instead of corrupting data.
-
-This prevents:
-
-overselling
-
-over-crediting
-
-partial writes
-
-No external locks or application-level synchronization are required.
-
-Overdue Customers
-
-Overdue status is not stored.
-
-A customer is considered overdue if:
-
-they have a positive outstanding balance
-
-their oldest unpaid credit entry is older than 30 days
-
-This is computed using a query over the credit ledger.
-
-This approach ensures overdue status is always accurate and derived from source-of-truth data.
-
-How Next.js Is Used
-
-Next.js is used strictly as a server-side API layer.
-
-Its responsibilities are:
-
-validating input
-
-extracting tenant context
-
-starting database transactions
-
-executing SQL logic
-
-returning responses
-
-It does not handle:
-
-concurrency control
-
-balance calculations
-
-business rule enforcement
-
-Those responsibilities belong to PostgreSQL.
+If you need help or want to collaborate, reach out via GitHub (https://github.com/xeureka) or open an issue in this repository.
