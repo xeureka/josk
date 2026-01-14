@@ -4,7 +4,6 @@
 
 An elegant, server-focused backend built for safe, concurrent multi‑tenant credit purchases. Designed for correctness, consistency, and robust transactional behavior when handling money, inventory, and tenant isolation.
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-85.5%25-blue)]() [![JavaScript](https://img.shields.io/badge/JavaScript-14.5%25-yellow)]()
 
 ---
 
