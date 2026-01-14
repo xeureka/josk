@@ -51,15 +51,15 @@ Enforced primarily at the database level:
 
 ### Multi‑tenancy
 - Every table includes a `business_id` column.
-- All queries and constraints are tenant-aware (use `business_id`).
-- Compatible with PostgreSQL Row Level Security (RLS) / Supabase if you opt to add it.
+- All queries and constraints are tenant-aware (I use `business_id`).
+- Compatible with PostgreSQL Row Level Security (RLS) / Supabase if we add it.
 
 ### Concurrency
 Row‑level locks are acquired on customer and product rows before validation and updates. This prevents overselling and over‑crediting without relying on application‑level locks.
 
 ---
 
-## Domain model (conceptual)
+## Domain model (Our tables)
 - **Businesses** — tenants; other tables reference `business_id`.
 - **Customers** — belong to a business; have a credit limit and credit activity tracked in the ledger.
 - **Products** — belong to a business; have stock and a price. Stock updates are transactional and validated.
@@ -122,12 +122,3 @@ High-level layout (may evolve):
 
 ---
 
-## Notes & next steps
-- No frontend is included — this project is purposefully server-only.
-- The system favors correctness and auditability over premature optimization.
-- If you enable RLS or Supabase, ensure application queries still include `business_id` filters or use auth-bound policies.
-- The repository includes a bare SQL schema / migrations. Consider improving safety, maintainability, and developer ergonomics by using a query builder or an ORM (for example: Knex, Prisma, TypeORM).
-
----
-
-*If you'd like, I can open a branch and create a PR with this change, or add a "Getting started" section — tell me which you prefer.*
